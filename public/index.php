@@ -8,18 +8,26 @@ if (file_exists(dirname(__DIR__) . '/.env')) {
 }
 
 // Compute routing path relative to root/subfolder
-$scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
-$basePath = dirname($scriptName);
-$basePath = str_replace('\\', '/', $basePath); // Normalize Windows paths
-$basePath = rtrim($basePath, '/');
-
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
 $requestPath = parse_url($requestUri, PHP_URL_PATH);
 
-if ($basePath !== '' && strpos($requestPath, $basePath) === 0) {
-    $requestPath = substr($requestPath, strlen($basePath));
+// Normalize path using /api/ or /swagger/ anchors for absolute safety
+$apiPos = strpos($requestPath, '/api/');
+if ($apiPos !== false) {
+    $requestPath = substr($requestPath, $apiPos);
+} else {
+    $swaggerPos = strpos($requestPath, '/swagger/');
+    if ($swaggerPos !== false) {
+        $requestPath = substr($requestPath, $swaggerPos);
+    } else {
+        // Strip trailing slash if any
+        $trimmedPath = rtrim($requestPath, '/');
+        // If empty or matches project name/root, route to swagger documentation
+        if ($trimmedPath === '' || preg_match('#/(public|ifnoss_api)?$#i', $trimmedPath)) {
+            $requestPath = '/swagger/';
+        }
+    }
 }
-$requestPath = '/' . ltrim($requestPath, '/');
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -33,8 +41,20 @@ if ($method === 'OPTIONS') {
 }
 
 // Swagger documentation redirection
-if ($requestPath === '/' || $requestPath === '/swagger' || $requestPath === '/swagger/') {
-    // Redirect to the swagger-ui index.html
+if ($requestPath === '/swagger' || $requestPath === '/swagger/') {
+    // Dynamically compute the script's base directory URL to redirect cleanly
+    $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+    $basePath = dirname($scriptName);
+    $basePath = str_replace('\\', '/', $basePath);
+    $basePath = rtrim($basePath, '/');
+    
+    // If request was rewritten by htaccess, the /public directory might be hidden in the request path
+    // but dirname($_SERVER['SCRIPT_NAME']) will still be "/ifnoss_api/public".
+    // If the request URI didn't have "/public", we redirect relative to the requested base.
+    if (strpos($_SERVER['REQUEST_URI'], '/public/') === false) {
+        $basePath = str_replace('/public', '', $basePath);
+    }
+    
     $redirectUrl = rtrim($basePath, '/') . '/swagger/index.html';
     header("Location: " . $redirectUrl);
     exit;
